@@ -94,10 +94,59 @@ long long solve_mutex( const vector<int>& data, int num_threads, long long& out_
     return chrono::duration_cast<chrono::microseconds>( end - start ).count();
 }
 
+long long solve_atomic_cas( const vector<int>& data, int num_threads, long long& out_result ) {
+    if ( num_threads > data.size() )
+    {
+        num_threads = data.size();
+    }
+
+    auto start = chrono::high_resolution_clock::now();
+
+
+    atomic<long long> global_result(0);
+    vector<thread> threads;
+
+    size_t chunk_size = data.size() / num_threads;
+    size_t remainder = data.size() % num_threads;
+
+    auto worker = [&]( size_t start_idx, size_t end_idx )
+    {
+        for ( size_t i = start_idx; i < end_idx; ++i )
+        {
+            if ( data[i] % 7 == 0 )
+            {
+                long long current = global_result.load();
+                long long desired;
+                do {
+                    desired = current ^ data[ i ];
+                }
+                while ( !global_result.compare_exchange_weak(current, desired) );
+            }
+        }
+    };
+
+    size_t current_start = 0;
+    for ( int i = 0; i < num_threads; ++i )
+    {
+        size_t current_end = current_start + chunk_size + ( i < remainder ? 1 : 0 );
+        threads.emplace_back( worker, current_start, current_end );
+        current_start = current_end;
+    }
+
+    for ( auto& t : threads )
+    {
+        t.join();
+    }
+
+    auto end = chrono::high_resolution_clock::now();
+    out_result = global_result.load();
+    return chrono::duration_cast<chrono::microseconds>( end - start ).count();
+}
+
 int main() {
 
     vector<int> thread_counts = { 2, 4, 8, 16, 32, 64, 128, 256, 512 };
-    vector<size_t> test_sizes = { 1'000'000, 10'000'000, 50'000'000, 100'000'000, 1'000'000'000,  5'000'000'000 };
+    vector<size_t> test_sizes = { 1'000'000, 10'000'000, 50'000'000, 100'000'000, 1'000'000'000 };
 
     random_device rd;
     mt19937 gen(rd());
@@ -135,6 +184,18 @@ int main() {
                 cout << "ERROR: Results are not the same! Seq: " << res_seq << " Mutex: " << res_mutex << "\n";
             }
             volatile long long sink_mutex = res_mutex;
+
+            long long res_cas = 0;
+            long long time_cas = solve_atomic_cas( data, num_threads, res_cas );
+            double speedup_cas = static_cast<double>( time_seq ) / time_cas;
+            print_result("CAS (" + to_string( num_threads ) + "t)", size, time_cas, speedup_cas );
+
+            if ( res_seq != res_cas )
+            {
+                cout << "ERROR (CAS): Seq: " << res_seq << " CAS: " << res_cas << "\n";
+            }
+
+            volatile long long sink_cas = res_cas;
         }
 
         cout << string( 78, '-' ) << "\n";
