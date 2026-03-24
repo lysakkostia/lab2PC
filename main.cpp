@@ -6,8 +6,25 @@
 #include <string>
 #include <thread>
 #include <mutex>
+#include <fstream>
 
 using namespace std;
+
+void init_csv(const string& filename) {
+    ofstream file(filename);
+    if (file.is_open())
+    {
+        file << "Elements,Threads,Method,Time_ms\n";
+    }
+}
+
+void append_to_csv(const string& filename, size_t n, int threads, const string& method, double time_ms) {
+    ofstream file(filename, ios::app);
+    if (file.is_open())
+    {
+        file << n << "," << threads << "," << method << "," << fixed << setprecision(6) << time_ms << "\n";
+    }
+}
 
 void print_header()
 {
@@ -152,6 +169,9 @@ int main() {
     mt19937 gen(rd());
     uniform_int_distribution<> distrib(1, 1000);
 
+    string csv_filename = "../results/results.csv";
+    init_csv(csv_filename);
+
     print_header();
 
     for ( size_t size : test_sizes )
@@ -166,18 +186,22 @@ int main() {
 
         long long res_seq = 0;
         long long time_seq = solve_sequential( data, res_seq );
+        double time_seq_ms = time_seq / 1000.0;
         print_result("Sequential", size, time_seq, 1.0 );
 
+        append_to_csv(csv_filename, size, 1, "Sequential", time_seq_ms);
 
         for ( int num_threads : thread_counts )
         {
             long long res_mutex = 0;
             long long time_mutex = solve_mutex( data, num_threads, res_mutex );
-
+            double time_mutex_ms = time_mutex / 1000.0;
             double speedup = static_cast<double>( time_seq ) / time_mutex;
 
             string method_name = "Mutex (" + to_string( num_threads ) + "t)";
             print_result( method_name, size, time_mutex, speedup );
+
+            append_to_csv(csv_filename, size, num_threads, "Mutex", time_mutex_ms);
 
             if ( res_seq != res_mutex )
             {
@@ -187,8 +211,11 @@ int main() {
 
             long long res_cas = 0;
             long long time_cas = solve_atomic_cas( data, num_threads, res_cas );
+            double time_cas_ms = time_cas / 1000.0;
             double speedup_cas = static_cast<double>( time_seq ) / time_cas;
             print_result("CAS (" + to_string( num_threads ) + "t)", size, time_cas, speedup_cas );
+
+            append_to_csv(csv_filename, size, num_threads, "CAS", time_cas_ms);
 
             if ( res_seq != res_cas )
             {
